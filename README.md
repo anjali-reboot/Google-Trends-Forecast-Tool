@@ -1,0 +1,1 @@
+# Google-Trends-Forecast-Tool
