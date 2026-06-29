@@ -12,20 +12,26 @@ import logging
 logging.getLogger("cmdstanpy").setLevel(logging.ERROR)
 logging.getLogger("prophet").setLevel(logging.ERROR)
 
-END_DATE = pd.Timestamp("2030-12-31")  # used only for monthly data
-
-WEEKLY_FORECAST_MONTHS = 6
-DAILY_FORECAST_MONTHS = 1
-
 # =========================
 # CONFIG
 # =========================
 INPUT_FOLDER = None
-OUTPUT_ROOT = None
+END_DATE = pd.Timestamp("2030-12-31")  # update end date for forecasts if different
 
-QA_NAME = "Audit"
+
+# =========================
+# OUTPUT ROOT STRUCTURE 
+# =========================
+OUTPUT_ROOT = None
+# OUTPUT_ROOT.mkdir(parents=True, exist_ok=True)
+
+QA_NAME = "Audit"          
 QA_ROOT = None
+# QA_ROOT.mkdir(parents=True, exist_ok=True)
+
+# Feasibility / historical plots go here
 PLOTS_DIR = None
+# PLOTS_DIR.mkdir(parents=True, exist_ok=True)
 
 
 # Feasibility window settings (monthly tool)
@@ -53,21 +59,6 @@ MIN_UNIQUE_NON_NULL = 5
 # =========================
 # HELPERS: parsing + reading
 # =========================
-
-def get_forecast_end_date(last_date: pd.Timestamp, freq: str) -> pd.Timestamp:
-    last_date = pd.to_datetime(last_date)
-
-    if freq == "monthly":
-        return END_DATE
-
-    if freq == "weekly":
-        return last_date + pd.DateOffset(months=WEEKLY_FORECAST_MONTHS)
-
-    if freq == "daily":
-        return last_date + pd.DateOffset(months=DAILY_FORECAST_MONTHS)
-
-    return END_DATE
-
 def parse_week_range_to_start_date(s: str) -> pd.Timestamp:
     """
     Weekly Google Trends often looks like: '2024-01-07 - 2024-01-13'
@@ -90,47 +81,16 @@ def extract_keyword_from_header(cols) -> str:
         return kw if kw else "unknown_keyword"
     return "unknown_keyword"
 
-def parse_google_trends_dates(raw: pd.Series) -> pd.Series:
-    raw = raw.astype(str).str.strip()
-
-    # If Google gives weekly ranges, keep the first date
-    if raw.str.contains(r"\s+-\s+", regex=True).mean() > 0.3:
-        raw = raw.str.split(r"\s+-\s+", regex=True).str[0].str.strip()
-
-    # Format: DD/MM/YYYY, e.g. 01/05/2026 = 1 May 2026
-    slash_mask = raw.str.match(r"^\d{1,2}/\d{1,2}/\d{4}$")
-
-    if slash_mask.mean() > 0.8:
-        parts = raw.str.extract(r"^(\d{1,2})/(\d{1,2})/(\d{4})$")
-
-        day = parts[0].astype(float).astype("Int64")
-        month = parts[1].astype(float).astype("Int64")
-        year = parts[2].astype(float).astype("Int64")
-
-        return pd.to_datetime(
-            year.astype(str) + "-" + month.astype(str).str.zfill(2) + "-" + day.astype(str).str.zfill(2),
-            errors="coerce"
-        )
-
-    # Format: YYYY-MM or YYYY-MM-DD
-    return pd.to_datetime(raw, errors="coerce")
-
 
 def read_google_trends_csv(fp: Path):
     """
-    Flexible Google Trends CSV reader.
-    Accepts formats with:
-    - Month
-    - Week
-    - Time
-    - Date
-    - first column as date-like values even if header is unusual
-    Also handles Google Trends metadata rows above the table.
+    Tries skiprows 0..6 until it finds a header with Week or Month in col1.
+    Returns:
+      df: columns ['ds','y'] sorted
+      keyword: extracted from header
+      raw_date_col_name: 'Week' or 'Month' as found
     """
-
-    possible_date_headers = {"week", "month", "time", "date", "day"}
-
-    for skip in range(0, 15):
+    for skip in range(0, 7):
         try:
             df = pd.read_csv(fp, skiprows=skip)
         except Exception:
@@ -139,112 +99,74 @@ def read_google_trends_csv(fp: Path):
         if df.shape[1] < 2:
             continue
 
-        df.columns = [str(c).strip() for c in df.columns]
-
-        first_col = df.columns[0]
-        first_col_lower = first_col.lower()
-
-        header_looks_valid = (
-            first_col_lower in possible_date_headers
-            or any(x in first_col_lower for x in possible_date_headers)
-        )
-
-        sample_dates = pd.to_datetime(
-            df[first_col].astype(str).str.strip().head(20),
-            errors="coerce",
-            dayfirst=True
-        )
-
-        first_col_looks_date_like = sample_dates.notna().mean() >= 0.5
-
-        if header_looks_valid or first_col_looks_date_like:
+        c0 = str(df.columns[0]).lower()
+        if ("week" in c0) or ("month" in c0):
             keyword = extract_keyword_from_header(list(df.columns))
             date_col = df.columns[0]
             val_col = df.columns[1]
 
-            raw = df[date_col].astype(str).str.strip()
+            raw = df[date_col].astype(str)
 
-            ds = parse_google_trends_dates(raw)
+            weekly_rate = raw.head(30).str.contains(r"\s-\s", regex=True).mean()
+            if weekly_rate > 0.3:
+                ds = raw.apply(parse_week_range_to_start_date)
+            else:
+                ds = pd.to_datetime(raw, errors="coerce")
 
-            print(fp.name, "raw first 10:", raw.head(10).tolist())
-            print(fp.name, "parsed first 10:", pd.Series(ds).head(10).tolist())
-            print(fp.name, "valid parsed dates:", pd.Series(ds).notna().sum(), "out of", len(ds))
-
-            y_raw = (
-                df[val_col]
-                .astype(str)
-                .str.replace("<1", "0.5", regex=False)
-                .str.replace(",", "", regex=False)
-                .str.strip()
-            )
-
-            y = pd.to_numeric(y_raw, errors="coerce")
+            y = pd.to_numeric(df[val_col], errors="coerce")
 
             out = pd.DataFrame({"ds": ds, "y": y})
-            out = out.dropna(subset=["ds"])
-            out = out.sort_values("ds")
-            out = out.drop_duplicates(subset=["ds"])
-            out = out.reset_index(drop=True)
+            out = out.dropna(subset=["ds"]).sort_values("ds")
+            out = out.drop_duplicates(subset=["ds"]).reset_index(drop=True)
 
-            if len(out) >= 2:
-                return out, keyword, str(date_col)
+            return out, keyword, str(date_col)
 
     raise ValueError(f"Could not parse Google Trends format in {fp.name}")
 
 
 def detect_frequency_from_deltas(ds: pd.Series) -> str:
+    """
+    Decide 'weekly' vs 'monthly' based on median delta in days.
+    """
     ds = pd.to_datetime(ds).dropna().sort_values()
-
     if len(ds) < 3:
         return "unknown"
 
     deltas = ds.diff().dropna().dt.days.values
     med = np.median(deltas)
 
-    if med <= 1.5:
-        return "daily"
-
-    if 5 <= med <= 9:
+    if med <= 10:
         return "weekly"
-
-    if 25 <= med <= 35:
+    if 20 <= med <= 40:
         return "monthly"
-
     return "unknown"
 
+
 def build_future_index(last_date: pd.Timestamp, freq: str, end_date: pd.Timestamp) -> pd.DatetimeIndex:
-    last_date = pd.to_datetime(last_date)
-
-    if freq == "daily":
-        start = last_date + pd.DateOffset(days=1)
-        return pd.date_range(start=start, end=end_date, freq="D")
-
     if freq == "weekly":
-        start = last_date + pd.DateOffset(weeks=1)
-        return pd.date_range(start=start, end=end_date, freq="7D")
+        start = last_date + pd.offsets.Week(1)
+        return pd.date_range(start=start, end=end_date, freq="W-SUN")
 
     if freq == "monthly":
-        start = last_date.to_period("M").to_timestamp() + pd.DateOffset(months=1)
-        return pd.date_range(start=start, end=end_date.to_period("M").to_timestamp(), freq="MS")
+        start = (last_date.to_period("M").to_timestamp("M") + pd.offsets.MonthBegin(1))
+        return pd.date_range(start=start, end=end_date, freq="MS")
 
     return pd.DatetimeIndex([])
 
+
 def make_master_index(start_date: pd.Timestamp, end_date: pd.Timestamp, freq: str) -> pd.DatetimeIndex:
-    start_date = pd.to_datetime(start_date)
-    end_date = pd.to_datetime(end_date)
-
-    if freq == "daily":
-        return pd.date_range(start=start_date, end=end_date, freq="D")
-
     if freq == "weekly":
-        return pd.date_range(start=start_date, end=end_date, freq="7D")
+        start = pd.to_datetime(start_date)
+        start = start + pd.offsets.Week(weekday=6) if start.weekday() != 6 else start
+        return pd.date_range(start=start, end=end_date, freq="W-SUN")
 
     if freq == "monthly":
-        start = start_date.to_period("M").to_timestamp()
-        end = end_date.to_period("M").to_timestamp()
+        start = pd.to_datetime(start_date).to_period("M").to_timestamp()
+        end = pd.to_datetime(end_date).to_period("M").to_timestamp()
         return pd.date_range(start=start, end=end, freq="MS")
 
     raise ValueError(f"Unsupported freq for master index: {freq}")
+
 
 def safe_colname(keyword: str) -> str:
     s = re.sub(r"\s+", " ", str(keyword)).strip()
@@ -273,6 +195,22 @@ def safe_name(s: str) -> str:
     s = re.sub(r"\s+", "_", s)
     return s[:120] if s else "unknown_keyword"
 
+def configure_runtime(input_folder, output_root, end_date=None):
+    global INPUT_FOLDER, OUTPUT_ROOT, QA_ROOT, PLOTS_DIR, END_DATE
+
+    INPUT_FOLDER = Path(input_folder)
+    OUTPUT_ROOT = Path(output_root)
+
+    if end_date is not None:
+        END_DATE = pd.Timestamp(end_date)
+
+    OUTPUT_ROOT.mkdir(parents=True, exist_ok=True)
+
+    QA_ROOT = OUTPUT_ROOT / QA_NAME
+    QA_ROOT.mkdir(parents=True, exist_ok=True)
+
+    PLOTS_DIR = QA_ROOT / "Historical_plots"
+    PLOTS_DIR.mkdir(parents=True, exist_ok=True)
 
 # =========================
 # FEASIBILITY FUNCTIONS
@@ -391,26 +329,6 @@ def plot_full_history(keyword: str,
     plt.savefig(outpath, dpi=170)
     plt.close()
 
-def configure_runtime(input_folder, output_root, end_date=None):
-    global INPUT_FOLDER
-    global OUTPUT_ROOT
-    global QA_ROOT
-    global PLOTS_DIR
-    global END_DATE
-
-    INPUT_FOLDER = Path(input_folder)
-
-    OUTPUT_ROOT = Path(output_root)
-    OUTPUT_ROOT.mkdir(parents=True, exist_ok=True)
-
-    QA_ROOT = OUTPUT_ROOT / QA_NAME
-    QA_ROOT.mkdir(parents=True, exist_ok=True)
-
-    PLOTS_DIR = QA_ROOT / "Historical_plots"
-    PLOTS_DIR.mkdir(parents=True, exist_ok=True)
-
-    if end_date is not None:
-        END_DATE = pd.Timestamp(end_date)
 
 # =========================
 # MAIN: Read files -> Build master -> Save -> Feasibility
@@ -443,8 +361,7 @@ def main():
             series_list.append((keyword, freq, df[["ds", "y"]].copy()))
 
             last_date = pd.to_datetime(df["ds"]).max()
-            forecast_end_date = get_forecast_end_date(last_date, freq)
-            future_idx = build_future_index(last_date, freq, forecast_end_date)
+            future_idx = build_future_index(last_date, freq, END_DATE)
 
             summary.append({
                 "file": fp.name,
@@ -477,37 +394,21 @@ def main():
     summary_df = pd.DataFrame(summary)
 
     unique_freqs = {f for f in summary_df["detected_freq"].dropna().unique()}
-
     if len(unique_freqs) != 1:
         print("\nERROR: Frequency mismatch across files:", sorted(unique_freqs))
         print("Exiting without building master data.")
-        return None, None, None
-
+        return None, None, None  # or raise SystemExit
+    
     master_freq = next(iter(unique_freqs))
     print(f"\nAll files share the same detected frequency: {master_freq}")
 
-    # --- Check that all files have the same start and end dates ---
-    start_dates = summary_df["start_date"].dropna().astype(str).unique()
-    last_dates = summary_df["last_date"].dropna().astype(str).unique()
-
-    if len(start_dates) != 1 or len(last_dates) != 1:
-        print("\nERROR: Date range mismatch across files.")
-        print("Start dates found:", sorted(start_dates))
-        print("Last dates found:", sorted(last_dates))
-        print("Exiting without building master data.")
-        return None, None, None
-
-    common_start = pd.to_datetime(start_dates[0])
-    common_end = pd.to_datetime(last_dates[0])
-
     # --- Step 2: Build master wide table ---
     ok_series = [(kw, fq, d) for (kw, fq, d) in series_list if d is not None and len(d) > 0]
-
     if not ok_series:
         raise ValueError("No successfully-read keyword series available to build master file.")
 
-    forecast_end_date = get_forecast_end_date(common_end, master_freq)
-    master_idx = make_master_index(common_start, forecast_end_date, master_freq)
+    common_start = min([pd.to_datetime(d["ds"]).min() for (_, _, d) in ok_series])
+    master_idx = make_master_index(common_start, END_DATE, master_freq)
 
     master_df = pd.DataFrame({"ds": master_idx})
 
@@ -542,17 +443,8 @@ def main():
 
     # --- Step 3: Feasibility checks ---
     if master_freq != "monthly":
-        print(f"\nNOTE: Feasibility screening skipped because data is {master_freq}, not monthly.")
-
-        feas_df = pd.DataFrame({
-            "keyword": [col for col in master_df.columns if col != "ds"],
-            "forecast_grade": "PASS",
-            "window_used": master_freq,
-            "reasons": "",
-            "warnings": ""
-        })
-
-        return master_df, master_freq, feas_df
+        print("\nNOTE: The current feasibility block is designed for MONTHLY data.")
+        return None, None, None
 
     master_index = pd.to_datetime(master_df["ds"])
     data_wide = master_df.drop(columns=["ds"]).copy()
@@ -679,7 +571,8 @@ def run_forecasting(master_df, master_freq, feas_df):
     # PLUS (NEW, integrated):
     #     - writes a per-model workbook inside each model folder
     #     - writes a recommended deliverable folder   
-
+    
+    global OUTPUT_ROOT, END_DATE
     import re
     from pathlib import Path
     import numpy as np
@@ -694,44 +587,30 @@ def run_forecasting(master_df, master_freq, feas_df):
     # =========================
     # OUTPUT ROOT STRUCTURE
     # =========================
-    OUTPUT_ROOT.mkdir(parents=True, exist_ok=True)
-
-    AUDIT_ROOT = OUTPUT_ROOT / "Audit"
-    AUDIT_ROOT.mkdir(parents=True, exist_ok=True)
-
-    # -------------------------
-    # CONFIG
-    # -------------------------
-    OUT_XLSX = AUDIT_ROOT / "Forecasting_Audit.xlsx"
     import warnings
     warnings.filterwarnings("ignore")
 
-
-    
     print("-" * 92)
     print()
     print("\n=== Step 3/3: Forecasting & Model Validation ===")
     print()
 
-    # -------------------------
-    # CONFIG
-    # -------------------------
+    if OUTPUT_ROOT is None:
+        raise ValueError("OUTPUT_ROOT is not configured. Run configure_runtime() first.")
+
+    AUDIT_ROOT = OUTPUT_ROOT / "Audit"
+    AUDIT_ROOT.mkdir(parents=True, exist_ok=True)
+
+    OUT_XLSX = AUDIT_ROOT / "Forecasting_Audit.xlsx"
 
     PLOTS_ALL_MODELS_DIR = AUDIT_ROOT / "Model_Comparison_Plots"
     PLOTS_ALL_MODELS_DIR.mkdir(parents=True, exist_ok=True)
 
-    
-    # Recommended deliverables folder
     PLOTS_RECOMMENDED_DIR = OUTPUT_ROOT / "Recommended"
     PLOTS_RECOMMENDED_DIR.mkdir(parents=True, exist_ok=True)
 
-    # =========================
-    # INDIVIDUAL MODEL OUTPUTS
-    # =========================
-
     INDIVIDUAL_MODELS_DIR = AUDIT_ROOT / "Individual_Models"
     INDIVIDUAL_MODELS_DIR.mkdir(parents=True, exist_ok=True)
-
 
 
     # Google Trends clipping bounds
@@ -775,22 +654,13 @@ def run_forecasting(master_df, master_freq, feas_df):
 
     def detect_master_freq(ds: pd.Series) -> str:
         ds = pd.to_datetime(ds).dropna().sort_values()
-
         if len(ds) < 3:
             return "unknown"
-
-        deltas = ds.diff().dropna().dt.days.values
-        med = np.median(deltas)
-
-        if med <= 1.5:
-            return "daily"
-
-        if 5 <= med <= 9:
+        med = np.median(ds.diff().dropna().dt.days.values)
+        if med <= 10:
             return "weekly"
-
-        if 25 <= med <= 35:
+        if 20 <= med <= 40:
             return "monthly"
-
         return "unknown"
 
     def get_season_len(freq: str) -> int:
@@ -1231,7 +1101,7 @@ def run_forecasting(master_df, master_freq, feas_df):
 
 
     master_freq = detect_master_freq(master_df["ds"])
-    if master_freq not in {"daily", "weekly", "monthly"}:
+    if master_freq not in {"weekly", "monthly"}:
         raise ValueError(f"Could not determine master frequency from master_df['ds'] (got: {master_freq})")
 
     freq = master_freq
@@ -1244,16 +1114,12 @@ def run_forecasting(master_df, master_freq, feas_df):
     last_real_date = data_wide.dropna(how="all").index.max()
     last_real_date = pd.to_datetime(last_real_date)
 
-    forecast_end_date = get_forecast_end_date(last_real_date, freq)
-    fc_index = make_forecast_index(last_real_date, freq, forecast_end_date)
+    fc_index = make_forecast_index(last_real_date, freq, END_DATE)
     steps_full = len(fc_index)
     print(f"\nForecasting freq={freq} | history_end={last_real_date.date()} | steps_to_{END_DATE.date()}={steps_full}")
 
     # feas_df = pd.read_csv(FEAS_OUT_CSV)
-    pass_keywords = feas_df.loc[
-    feas_df["forecast_grade"].isin(["PASS_8Y", "PASS_4Y", "PASS"]),
-    "keyword"
-    ].tolist()
+    pass_keywords = feas_df.loc[feas_df["forecast_grade"].isin(["PASS_8Y", "PASS_4Y"]), "keyword"].tolist()
     fail_keywords = feas_df.loc[feas_df["forecast_grade"] == "FAIL", "keyword"].tolist()
 
     print("PASS keywords:", len(pass_keywords))
@@ -1610,21 +1476,14 @@ def run_forecasting(master_df, master_freq, feas_df):
     final_wide_display = final_wide_full.copy()
 
     # Rename column
-    final_wide_display = final_wide_display.rename(columns={"ds": "Date"})
+    final_wide_display = final_wide_display.rename(columns={"ds": "Month"})
 
-    # Format display date depending on frequency
-    if master_freq == "monthly":
-        final_wide_display["Date"] = (
-            pd.to_datetime(final_wide_display["Date"])
-            .dt.to_period("M")
-            .astype(str)
-        )
-
-    elif master_freq in ["weekly", "daily"]:
-        final_wide_display["Date"] = (
-            pd.to_datetime(final_wide_display["Date"])
-            .dt.strftime("%Y-%m-%d")
-        )
+    # Format as YYYY-MM
+    final_wide_display["Month"] = (
+        pd.to_datetime(final_wide_display["Month"])
+        .dt.to_period("M")
+        .astype(str)
+    )
 
 
     # -------------------------
@@ -1664,9 +1523,7 @@ def run_forecasting(master_df, master_freq, feas_df):
         # print("Model workbook written:", model_xlsx)
     # print("Recommended deliverable written")
 
-
 def run_pipeline(input_folder, output_root, end_date=None):
-
     configure_runtime(
         input_folder=input_folder,
         output_root=output_root,
@@ -1678,22 +1535,23 @@ def run_pipeline(input_folder, output_root, end_date=None):
     if master_df is None or master_freq is None or feas_df is None:
         raise ValueError("Pipeline stopped before forecasting.")
 
+    if master_freq != "monthly":
+        raise ValueError(f"Only monthly data supported for now. Detected: {master_freq}")
+
     run_forecasting(master_df, master_freq, feas_df)
 
     return str(OUTPUT_ROOT)
 
+# if __name__ == "__main__":
+#     master_df, master_freq, feas_df = main()
+#     run_forecasting(master_df, master_freq, feas_df)
+
+
 
 if __name__ == "__main__":
-
-    configure_runtime(
-        input_folder="./input_data",
-        output_root="./Output",
-        end_date=END_DATE
-    )
-
+    configure_runtime("./input_data", "./Output")
     master_df, master_freq, feas_df = main()
-
-    if master_df is not None:
+    if master_df is not None and master_freq == "monthly" and feas_df is not None:
         run_forecasting(master_df, master_freq, feas_df)
 
 # %%
