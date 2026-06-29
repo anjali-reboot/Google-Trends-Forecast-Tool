@@ -11,10 +11,17 @@ from forecast_engine import run_pipeline
 st.set_page_config(page_title="Google Trends Forecast Tool", layout="wide")
 
 st.title("Google Trends Forecast Tool")
-st.write("Upload up to 12 Google Trends CSV files with monthly data, then run the forecast and download the output ZIP.")
+st.write(
+    "Upload up to 12 Google Trends CSV files (monthly, weekly or daily frequency), run the forecast and download the output ZIP."
+)
+
+st.info(
+    "If uploading multiple CSV files together, please ensure they all cover the same date range (the same start and end dates). "
+    "If your files cover different date ranges, run them as separate forecasts."
+)
 
 MAX_FILES = 12
-DEFAULT_END_DATE = pd.Timestamp("2030-12-31").date()
+# DEFAULT_END_DATE = pd.Timestamp("2030-12-31").date()
 
 uploaded_files = st.file_uploader(
     "Upload Google Trends CSV files",
@@ -22,10 +29,10 @@ uploaded_files = st.file_uploader(
     accept_multiple_files=True
 )
 
-end_date = st.date_input(
-    "Forecast end date",
-    value=DEFAULT_END_DATE
-)
+# end_date = st.date_input(
+#     "Forecast end date",
+#     value=DEFAULT_END_DATE
+# )
 
 if uploaded_files:
     st.write(f"Files uploaded: {len(uploaded_files)}")
@@ -58,8 +65,7 @@ if st.button("Run Forecast", type="primary"):
             with st.spinner("Running forecast..."):
                 run_pipeline(
                     input_folder=input_dir,
-                    output_root=output_dir,
-                    end_date=str(end_date)
+                    output_root=output_dir
                 )
 
             st.success("Forecast completed successfully.")
