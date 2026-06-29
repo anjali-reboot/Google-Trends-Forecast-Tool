@@ -1096,11 +1096,12 @@ def run_forecasting(master_df, master_freq, feas_df):
                 reasons.append(f"early_sat_rate={sat:.1%} > {HARD_RULES['max_early_saturation_rate']:.0%}")
 
         # ---- Jump ratio (keep, but compare to last observed more directly) ----
-        lvl = recent_level(hist_y, freq)
-        if lvl <= 0:
-            lvl = 1.0
+        last_val = float(hist.iloc[-1]) if len(hist) else 0.0
         first = float(fc_y[0]) if len(fc_y) else last_val
-        jump_ratio = abs(first - last_val) / (lvl + 1e-6)
+
+        denom = max(abs(last_val), 1.0)
+        jump_ratio = abs(first - last_val) / denom
+
         if jump_ratio > HARD_RULES["max_jump_ratio"]:
             reasons.append(f"jump_ratio={jump_ratio:.2f} > {HARD_RULES['max_jump_ratio']:.2f}")
 
