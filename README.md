@@ -9,7 +9,7 @@
 
 ## Run the Forecast
 
-1. Open the Streamlit app: **[<STREAMLIT_APP_LINK>](https://trends-forecast-tool.streamlit.app/)**
+1. Open the Streamlit app: **[STREAMLIT_APP_LINK](https://trends-forecast-tool.streamlit.app/)**
 2. Upload one or more Google Trends CSV files.
 3. If uploading multiple files, ensure they all cover the **same date range**.
 4. Click **Run Forecast**.
