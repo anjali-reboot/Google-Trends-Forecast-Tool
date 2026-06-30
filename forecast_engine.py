@@ -191,9 +191,9 @@ def read_google_trends_csv(fp: Path):
 
             ds = parse_google_trends_dates(raw)
 
-            print(fp.name, "raw first 10:", raw.head(10).tolist())
-            print(fp.name, "parsed first 10:", pd.Series(ds).head(10).tolist())
-            print(fp.name, "valid parsed dates:", pd.Series(ds).notna().sum(), "out of", len(ds))
+            # print(fp.name, "raw first 10:", raw.head(10).tolist())
+            # print(fp.name, "parsed first 10:", pd.Series(ds).head(10).tolist())
+            # print(fp.name, "valid parsed dates:", pd.Series(ds).notna().sum(), "out of", len(ds))
 
             y_raw = (
                 df[val_col]
@@ -693,7 +693,7 @@ def run_forecasting(master_df, master_freq, feas_df):
 
     from statsmodels.tsa.holtwinters import ExponentialSmoothing
     from statsmodels.tsa.statespace.sarimax import SARIMAX
-    from prophet import Prophet   
+    # from prophet import Prophet   
    
    
     # =========================
@@ -761,7 +761,7 @@ def run_forecasting(master_df, master_freq, feas_df):
     CLIP_MIN, CLIP_MAX = 0.0, 100.0
 
     # Backtest settings (rolling origin)
-    N_FOLDS = 3
+    N_FOLDS = 1
     MIN_TRAIN_POINTS_MONTHLY = 48
     MIN_TRAIN_POINTS_WEEKLY = 104
 
@@ -919,7 +919,7 @@ def run_forecasting(master_df, master_freq, feas_df):
                     seasonal_periods=season_len,
                     initialization_method="estimated",
                 )
-                res = mod.fit(optimized=True, use_brute=True)
+                res = mod.fit(optimized=True)
                 aic = float(res.aic) if np.isfinite(res.aic) else np.inf
                 if aic < best_aic:
                     best_aic = aic
@@ -963,6 +963,7 @@ def run_forecasting(master_df, master_freq, feas_df):
         return yhat, lo, hi
 
     def fit_prophet(y_log: pd.Series, ds: pd.DatetimeIndex, steps: int, freq: str):
+        from prophet import Prophet
         dfp = pd.DataFrame({"ds": ds, "y": y_log.values})
         m = Prophet(
             yearly_seasonality=True,
@@ -1283,16 +1284,24 @@ def run_forecasting(master_df, master_freq, feas_df):
     print("PASS keywords:", len(pass_keywords))
     print("FAIL keywords:", len(fail_keywords))
 
+    # MODEL_LIST = [
+    #     "excel_ets_auto",
+    #     "excel_ets_add_add",
+    #     "excel_ets_damped_add",
+    #     "excel_ets_add_mul",
+    #     "excel_ets_damped_mul",
+    #     "holtwinters_add",
+    #     "holtwinters_mul",
+    #     "sarimax_simple",
+    #     "sarimax_richer",
+    #     "prophet",
+    # ]
+
     MODEL_LIST = [
         "excel_ets_auto",
-        "excel_ets_add_add",
         "excel_ets_damped_add",
-        "excel_ets_add_mul",
-        "excel_ets_damped_mul",
         "holtwinters_add",
-        "holtwinters_mul",
         "sarimax_simple",
-        "sarimax_richer",
         "prophet",
     ]
 
@@ -1396,10 +1405,10 @@ def run_forecasting(master_df, master_freq, feas_df):
                     bt = {}
 
                 hard = hard_rule_checks(hist_y, yhat, freq)
-                if kw == "heatwave":
-                    print(model_name)
-                    print(hard)
-                    print(model_name, hard["hard_reasons"])
+                # if kw == "heatwave":
+                #     print(model_name)
+                #     print(hard)
+                #     print(model_name, hard["hard_reasons"])
                 score = soft_score(bt, hard_pass=hard["pass_hard_rules"])
 
                 # ---- compute early window ONCE before the dict ----
@@ -1677,17 +1686,17 @@ def run_forecasting(master_df, master_freq, feas_df):
     # -------------------------
     # NEW: write per-model workbooks inside each model folder
     # -------------------------
-    for model_name, tbl in model_tables.items():
-        if tbl.empty:
-            continue
-        model_dir = INDIVIDUAL_MODELS_DIR / model_name
-        model_dir.mkdir(parents=True, exist_ok=True)
-        model_xlsx = model_dir / f"{model_name}_forecasts.xlsx"
+    # for model_name, tbl in model_tables.items():
+    #     if tbl.empty:
+    #         continue
+    #     model_dir = INDIVIDUAL_MODELS_DIR / model_name
+    #     model_dir.mkdir(parents=True, exist_ok=True)
+    #     model_xlsx = model_dir / f"{model_name}_forecasts.xlsx"
 
-        with pd.ExcelWriter(model_xlsx, engine="xlsxwriter") as w:
-            tbl.to_excel(w, sheet_name="Forecast_Long", index=False)
-            wide = tbl.pivot(index="ds", columns="keyword", values="forecast").reset_index()
-            wide.to_excel(w, sheet_name="Forecast_Wide", index=False)
+    #     with pd.ExcelWriter(model_xlsx, engine="xlsxwriter") as w:
+    #         tbl.to_excel(w, sheet_name="Forecast_Long", index=False)
+    #         wide = tbl.pivot(index="ds", columns="keyword", values="forecast").reset_index()
+    #         wide.to_excel(w, sheet_name="Forecast_Wide", index=False)
 
         # print("Model workbook written:", model_xlsx)
     # print("Recommended deliverable written")
