@@ -12,20 +12,45 @@ import logging
 logging.getLogger("cmdstanpy").setLevel(logging.ERROR)
 logging.getLogger("prophet").setLevel(logging.ERROR)
 
-END_DATE = pd.Timestamp("2030-12-31")  # used only for monthly data
-
-WEEKLY_FORECAST_MONTHS = 6
-DAILY_FORECAST_MONTHS = 1
-
 # =========================
 # CONFIG
 # =========================
-INPUT_FOLDER = None
-OUTPUT_ROOT = None
 
-QA_NAME = "Audit"
-QA_ROOT = None
-PLOTS_DIR = None
+def configure_runtime(input_folder, output_root):
+    global INPUT_FOLDER, OUTPUT_ROOT, QA_ROOT, PLOTS_DIR
+
+    INPUT_FOLDER = Path(input_folder)
+
+    OUTPUT_ROOT = Path(output_root)
+    OUTPUT_ROOT.mkdir(parents=True, exist_ok=True)
+
+    QA_ROOT = OUTPUT_ROOT / "Audit"
+    QA_ROOT.mkdir(parents=True, exist_ok=True)
+
+    PLOTS_DIR = QA_ROOT / "Historical_plots"
+    PLOTS_DIR.mkdir(parents=True, exist_ok=True)
+
+# INPUT_FOLDER = Path(r"./input_data")   # update this path for input data folder if different
+# END_DATE = pd.Timestamp("2030-12-31")  # update end date for forecasts if different
+
+END_DATE = pd.Timestamp("2030-12-31")  # used only for monthly data
+
+WEEKLY_FORECAST_MONTHS = 4
+DAILY_FORECAST_MONTHS = 1
+
+# =========================
+# OUTPUT ROOT STRUCTURE 
+# =========================
+# OUTPUT_ROOT = Path("./Output")
+# OUTPUT_ROOT.mkdir(parents=True, exist_ok=True)
+
+# QA_NAME = "Audit"          
+# QA_ROOT = OUTPUT_ROOT / QA_NAME
+# QA_ROOT.mkdir(parents=True, exist_ok=True)
+
+# Feasibility / historical plots go here
+# PLOTS_DIR = QA_ROOT / "Historical_plots"
+# PLOTS_DIR.mkdir(parents=True, exist_ok=True)
 
 
 # Feasibility window settings (monthly tool)
@@ -391,26 +416,6 @@ def plot_full_history(keyword: str,
     plt.savefig(outpath, dpi=170)
     plt.close()
 
-def configure_runtime(input_folder, output_root, end_date=None):
-    global INPUT_FOLDER
-    global OUTPUT_ROOT
-    global QA_ROOT
-    global PLOTS_DIR
-    global END_DATE
-
-    INPUT_FOLDER = Path(input_folder)
-
-    OUTPUT_ROOT = Path(output_root)
-    OUTPUT_ROOT.mkdir(parents=True, exist_ok=True)
-
-    QA_ROOT = OUTPUT_ROOT / QA_NAME
-    QA_ROOT.mkdir(parents=True, exist_ok=True)
-
-    PLOTS_DIR = QA_ROOT / "Historical_plots"
-    PLOTS_DIR.mkdir(parents=True, exist_ok=True)
-
-    if end_date is not None:
-        END_DATE = pd.Timestamp(end_date)
 
 # =========================
 # MAIN: Read files -> Build master -> Save -> Feasibility
@@ -694,15 +699,16 @@ def run_forecasting(master_df, master_freq, feas_df):
     # =========================
     # OUTPUT ROOT STRUCTURE
     # =========================
-    OUTPUT_ROOT.mkdir(parents=True, exist_ok=True)
+    # OUTPUT_ROOT = Path("./Output")
+    # OUTPUT_ROOT.mkdir(parents=True, exist_ok=True)
 
-    AUDIT_ROOT = OUTPUT_ROOT / "Audit"
-    AUDIT_ROOT.mkdir(parents=True, exist_ok=True)
+    # AUDIT_ROOT = OUTPUT_ROOT / "Audit"
+    # AUDIT_ROOT.mkdir(parents=True, exist_ok=True)
 
     # -------------------------
     # CONFIG
     # -------------------------
-    OUT_XLSX = AUDIT_ROOT / "Forecasting_Audit.xlsx"
+    # OUT_XLSX = AUDIT_ROOT / "Forecasting_Audit.xlsx"
     import warnings
     warnings.filterwarnings("ignore")
 
@@ -716,6 +722,21 @@ def run_forecasting(master_df, master_freq, feas_df):
     # -------------------------
     # CONFIG
     # -------------------------
+    
+
+    # =========================
+    # OUTPUT ROOT STRUCTURE
+    # =========================
+
+    # OUTPUT_ROOT = Path("./Output")
+    # OUTPUT_ROOT.mkdir(parents=True, exist_ok=True)
+
+    # =========================
+    # AUDIT STRUCTURE
+    # =========================
+
+    AUDIT_ROOT = OUTPUT_ROOT / "Audit"
+    AUDIT_ROOT.mkdir(parents=True, exist_ok=True)
 
     PLOTS_ALL_MODELS_DIR = AUDIT_ROOT / "Model_Comparison_Plots"
     PLOTS_ALL_MODELS_DIR.mkdir(parents=True, exist_ok=True)
@@ -724,6 +745,8 @@ def run_forecasting(master_df, master_freq, feas_df):
     # Recommended deliverables folder
     PLOTS_RECOMMENDED_DIR = OUTPUT_ROOT / "Recommended"
     PLOTS_RECOMMENDED_DIR.mkdir(parents=True, exist_ok=True)
+
+    OUT_XLSX = OUTPUT_ROOT / "Audit" / "Forecasting_Audit.xlsx"
 
     # =========================
     # INDIVIDUAL MODEL OUTPUTS
@@ -1373,6 +1396,10 @@ def run_forecasting(master_df, master_freq, feas_df):
                     bt = {}
 
                 hard = hard_rule_checks(hist_y, yhat, freq)
+                if kw == "heatwave":
+                    print(model_name)
+                    print(hard)
+                    print(model_name, hard["hard_reasons"])
                 score = soft_score(bt, hard_pass=hard["pass_hard_rules"])
 
                 # ---- compute early window ONCE before the dict ----
@@ -1665,31 +1692,26 @@ def run_forecasting(master_df, master_freq, feas_df):
         # print("Model workbook written:", model_xlsx)
     # print("Recommended deliverable written")
 
-
-def run_pipeline(input_folder, output_root, end_date=None):
-
+def run_pipeline(input_folder, output_root):
     configure_runtime(
         input_folder=input_folder,
-        output_root=output_root,
-        end_date=end_date
+        output_root=output_root
     )
 
     master_df, master_freq, feas_df = main()
 
-    if master_df is None or master_freq is None or feas_df is None:
-        raise ValueError("Pipeline stopped before forecasting.")
+    if master_df is None:
+        raise ValueError("Pipeline stopped.")
 
     run_forecasting(master_df, master_freq, feas_df)
 
     return str(OUTPUT_ROOT)
 
-
 if __name__ == "__main__":
 
     configure_runtime(
         input_folder="./input_data",
-        output_root="./Output",
-        end_date=END_DATE
+        output_root="./Output"
     )
 
     master_df, master_freq, feas_df = main()
