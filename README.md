@@ -47,5 +47,5 @@ The downloaded ZIP file contains:
 
 - Monthly data is forecast to a fixed end date.
 - Weekly and daily data are forecast over shorter horizons appropriate to their frequency.
-- Forecasts are automatically clipped to the Google Trends scale (0–100).
+- Forecasts are automatically clipped to the Google Trends scale (0-100).
 - The tool automatically detects the input frequency, so no manual selection is required.
