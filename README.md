@@ -7,9 +7,9 @@
 
 ---
 
-## Run the Forecast
+## 2. Run the Forecast
 
-1. Open the Streamlit app: **[STREAMLIT_APP_LINK](https://trends-forecast-tool.streamlit.app/)**
+1. Open the Streamlit app: **[Streamlit App Link](https://trends-forecast-tool.streamlit.app/)**
 2. Upload one or more Google Trends CSV files.
 3. If uploading multiple files, ensure they all cover the **same date range**.
 4. Click **Run Forecast**.
@@ -17,7 +17,7 @@
 
 ---
 
-## Output
+## 3. Output
 
 The downloaded ZIP file contains:
 
@@ -41,7 +41,6 @@ The downloaded ZIP file contains:
 - All uploaded files must cover the same date range.
 
 ---
-
 
 
 ## Notes
