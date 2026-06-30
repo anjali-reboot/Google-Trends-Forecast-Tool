@@ -3,7 +3,7 @@
 ## 1. Download Google Trends Data
 
 1. Open Google Trends: **https://trends.google.com/**
-2. Search for a keyword (preferably a **Topic**), select the required time period (e.g. **Past 12 months** or **2004–Present**), and download the CSV file.
+2. Search for a keyword (preferably a **Topic**), select the required time period (**2004–Present** or **Past 5 years**), and download the CSV file.
 
 ---
 
