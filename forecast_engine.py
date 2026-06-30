@@ -763,7 +763,7 @@ def run_forecasting(master_df, master_freq, feas_df):
     # Backtest settings (rolling origin)
     N_FOLDS = 1
     MIN_TRAIN_POINTS_MONTHLY = 48
-    MIN_TRAIN_POINTS_WEEKLY = 104
+    MIN_TRAIN_POINTS_WEEKLY = 52
 
     # Recommendation rules (hard rejects)
     HARD_RULES = {
@@ -817,7 +817,11 @@ def run_forecasting(master_df, master_freq, feas_df):
         return "unknown"
 
     def get_season_len(freq: str) -> int:
-        return 52 if freq == "weekly" else 12
+
+        if freq == "weekly":
+            return 52
+
+        return 12
 
     def make_forecast_index(last_hist_date: pd.Timestamp, freq: str, end_date: pd.Timestamp) -> pd.DatetimeIndex:
         if freq == "weekly":
@@ -966,8 +970,8 @@ def run_forecasting(master_df, master_freq, feas_df):
         from prophet import Prophet
         dfp = pd.DataFrame({"ds": ds, "y": y_log.values})
         m = Prophet(
-            yearly_seasonality=True,
-            weekly_seasonality=(freq == "weekly"),
+            yearly_seasonality=(freq == "monthly"),
+            weekly_seasonality=False,
             daily_seasonality=False,
             interval_width=0.95
         )
@@ -1297,13 +1301,23 @@ def run_forecasting(master_df, master_freq, feas_df):
     #     "prophet",
     # ]
 
-    MODEL_LIST = [
-        "excel_ets_auto",
-        "excel_ets_damped_add",
-        "holtwinters_add",
-        "sarimax_simple",
-        "prophet",
-    ]
+    if freq == "weekly":
+
+        MODEL_LIST = [
+            "excel_ets_auto",
+            "holtwinters_add",
+            "prophet",
+        ]
+
+    else:
+
+        MODEL_LIST = [
+            "excel_ets_auto",
+            "excel_ets_damped_add",
+            "holtwinters_add",
+            "sarimax_simple",
+            "prophet",
+        ]
 
     # -------------------------
     # Output collectors
